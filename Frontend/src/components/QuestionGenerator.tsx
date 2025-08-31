@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Card } from './ui/card';
-import { ImageWithFallback } from './figma/ImageWithFallback';
+import React, { useEffect, useState } from "react";
+import { Card } from "./ui/card";
+import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
 // Part 1 Questions (Simple, personal questions)
 const PART1_QUESTIONS = [
@@ -23,21 +23,21 @@ const PART1_QUESTIONS = [
   "What's your favorite way to relax?",
   "Do you like sports? Which ones do you enjoy watching or playing?",
   "How has technology changed your daily life?",
-  "What do you usually do in your free time?"
+  "What do you usually do in your free time?",
 ];
 
 // Image search queries for Part 2 description tasks
 const IMAGE_SEARCH_QUERIES = [
   "family gathering celebration",
   "modern office workspace",
-  "beautiful park landscape", 
+  "beautiful park landscape",
   "busy city street",
   "traditional market food",
   "students studying library",
   "people exercising outdoors",
   "mountain hiking adventure",
   "beach sunset landscape",
-  "art gallery exhibition"
+  "art gallery exhibition",
 ];
 
 interface QuestionGeneratorProps {
@@ -46,7 +46,11 @@ interface QuestionGeneratorProps {
   questionCount: number;
 }
 
-export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questionCount }: QuestionGeneratorProps) {
+export function QuestionGenerator({
+  onQuestionGenerated,
+  currentQuestion,
+  questionCount,
+}: QuestionGeneratorProps) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
 
@@ -66,12 +70,15 @@ export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questi
 
   const generateImageDescriptionTask = () => {
     setIsLoadingImage(true);
-    
+
     // Set up the image question
-    const imageQuestion = "Look at the image below and describe what you see. You should speak for 2-3 minutes and include: what is happening in the image, who or what you can see, the setting or location, and your thoughts or feelings about what you observe.";
-    
+    const imageQuestion =
+      "Look at the image below and describe what you see. You should speak for 2-3 minutes and include: what is happening in the image, who or what you can see, the setting or location, and your thoughts or feelings about what you observe.";
+
     // Use the fetched image from Unsplash
-    setImageUrl("https://images.unsplash.com/photo-1722252799088-4781aabc3d0f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBnYXRoZXJpbmclMjBjZWxlYnJhdGlvbnxlbnwxfHx8fDE3NTY1NzM5NTF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral");
+    setImageUrl(
+      "https://images.unsplash.com/photo-1722252799088-4781aabc3d0f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBnYXRoZXJpbmclMjBjZWxlYnJhdGlvbnxlbnwxfHx8fDE3NTY1NzM5NTF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+    );
     onQuestionGenerated(imageQuestion);
     setIsLoadingImage(false);
   };
@@ -80,14 +87,17 @@ export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questi
     return (
       <div className="text-center py-4">
         <p className="text-muted-foreground">
-          {isLoadingImage ? 'Loading image for description task...' : 'Generating question...'}
+          {isLoadingImage
+            ? "Loading image for description task..."
+            : "Generating question..."}
         </p>
       </div>
     );
   }
 
   const isImageQuestion = questionCount === 5;
-  const questionType = questionCount < 5 ? 'Part 1' : 'Part 2 - Image Description';
+  const questionType =
+    questionCount < 5 ? "Part 1" : "Part 2 - Image Description";
 
   return (
     <div className="space-y-4">
@@ -100,11 +110,11 @@ export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questi
       <div className="p-6 bg-primary/5 border border-primary/20 rounded-lg">
         <h2 className="mb-4">Your Speaking Question:</h2>
         <p className="leading-relaxed mb-4">{currentQuestion}</p>
-        
+
         {/* Display image for image description questions */}
         {isImageQuestion && imageUrl && (
           <div className="mt-4">
-            <ImageWithFallback 
+            <ImageWithFallback
               src={imageUrl}
               alt="Image to describe"
               className="w-full max-w-lg mx-auto rounded-lg border"
@@ -112,9 +122,11 @@ export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questi
           </div>
         )}
       </div>
-      
+
       <div className="text-sm text-muted-foreground space-y-2">
-        <p><strong>Instructions:</strong></p>
+        <p>
+          <strong>Instructions:</strong>
+        </p>
         <ul className="list-disc list-inside space-y-1 ml-4">
           <li>Take a moment to think about your answer</li>
           <li>Speak clearly and at a natural pace</li>
@@ -123,7 +135,10 @@ export function QuestionGenerator({ onQuestionGenerated, currentQuestion, questi
           ) : (
             <>
               <li>Speak for 2-3 minutes describing the image in detail</li>
-              <li>Include what you see, the setting, people/objects, and your impressions</li>
+              <li>
+                Include what you see, the setting, people/objects, and your
+                impressions
+              </li>
             </>
           )}
           <li>Use specific examples and details in your response</li>
