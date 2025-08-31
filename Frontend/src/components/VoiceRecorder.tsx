@@ -1,9 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Button } from './ui/button';
-import { Progress } from './ui/progress';
-import { Alert, AlertDescription } from './ui/alert';
-import { Mic, Square, Play, Pause, MicOff, AlertTriangle } from 'lucide-react';
-
+import React, { useState, useRef, useEffect } from "react";
+import { Button } from "./ui/button";
+import { Alert, AlertDescription } from "./ui/alert";
+import { Mic, Square, Play, Pause, MicOff, AlertTriangle } from "lucide-react";
 interface VoiceRecorderProps {
   onRecordingComplete: (data: { duration: string; audioUrl?: string }) => void;
 }
@@ -16,24 +14,28 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
   const [hasRecording, setHasRecording] = useState(false);
   const [microphoneError, setMicrophoneError] = useState<string | null>(null);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [permissionState, setPermissionState] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  const [permissionState, setPermissionState] = useState<
+    "unknown" | "granted" | "denied"
+  >("unknown");
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+  const currentDurationRef = useRef<number>(0);
 
   useEffect(() => {
     // Check microphone permission on mount
     checkMicrophonePermission();
-    
+
     return () => {
       // Cleanup on unmount
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
   }, []);
@@ -41,87 +43,108 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
   const checkMicrophonePermission = async () => {
     try {
       if (navigator.permissions) {
-        const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        setPermissionState(permission.state as 'granted' | 'denied');
-        
+        const permission = await navigator.permissions.query({
+          name: "microphone" as PermissionName,
+        });
+        setPermissionState(permission.state as "granted" | "denied");
+
         // Listen for permission changes
         permission.onchange = () => {
-          setPermissionState(permission.state as 'granted' | 'denied');
-          if (permission.state === 'granted') {
+          setPermissionState(permission.state as "granted" | "denied");
+          if (permission.state === "granted") {
             setMicrophoneError(null);
           }
         };
       }
     } catch (error) {
       // Permissions API not supported, we'll handle this during recording attempt
-      console.log('Permissions API not supported');
+      console.log("Permissions API not supported");
     }
   };
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const startRecording = async () => {
     setMicrophoneError(null);
-    
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
       streamRef.current = stream;
-      
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
-      
+
       const chunks: BlobPart[] = [];
-      
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunks.push(event.data);
         }
       };
-      
+
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+        const audioBlob = new Blob(chunks, {
+          type: "audio/wav",
+        });
         const url = URL.createObjectURL(audioBlob);
         setAudioUrl(url);
         setHasRecording(true);
         setIsSimulating(false);
-        
+
+        // Calculate final duration using the ref value
+        const finalDuration = currentDurationRef.current;
+
         // Notify parent component with recording data
         onRecordingComplete({
-          duration: formatTime(recordingTime),
-          audioUrl: url
+          duration: formatTime(finalDuration),
+          audioUrl: url,
         });
       };
-      
+
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
-      setPermissionState('granted');
-      
+      setPermissionState("granted");
+
+      // Record start time and reset duration
+      startTimeRef.current = Date.now();
+      currentDurationRef.current = 0;
+
       // Start timer
       intervalRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
+        if (startTimeRef.current) {
+          const elapsed = Math.floor(
+            (Date.now() - startTimeRef.current) / 1000
+          );
+          currentDurationRef.current = elapsed;
+          setRecordingTime(elapsed);
+        }
       }, 1000);
-      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
-      console.error('Error accessing microphone:', error);
-      
-      let errorMessage = 'Unable to access microphone. ';
-      
-      if (error.name === 'NotAllowedError') {
-        errorMessage += 'Please enable microphone permissions in your browser settings and refresh the page.';
-        setPermissionState('denied');
-      } else if (error.name === 'NotFoundError') {
-        errorMessage += 'No microphone found. Please connect a microphone and try again.';
-      } else if (error.name === 'NotSupportedError') {
-        errorMessage += 'Your browser does not support audio recording.';
+      console.error("Error accessing microphone:", error);
+
+      let errorMessage = "Unable to access microphone. ";
+
+      if (error.name === "NotAllowedError") {
+        errorMessage +=
+          "Please enable microphone permissions in your browser settings and refresh the page.";
+        setPermissionState("denied");
+      } else if (error.name === "NotFoundError") {
+        errorMessage +=
+          "No microphone found. Please connect a microphone and try again.";
+      } else if (error.name === "NotSupportedError") {
+        errorMessage += "Your browser does not support audio recording.";
       } else {
-        errorMessage += 'Please check your browser settings and try again.';
+        errorMessage += "Please check your browser settings and try again.";
       }
-      
+
       setMicrophoneError(errorMessage);
     }
   };
@@ -131,10 +154,18 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
     setIsRecording(true);
     setRecordingTime(0);
     setMicrophoneError(null);
-    
+
+    // Record start time and reset duration
+    startTimeRef.current = Date.now();
+    currentDurationRef.current = 0;
+
     // Start timer for simulation
     intervalRef.current = setInterval(() => {
-      setRecordingTime(prev => prev + 1);
+      if (startTimeRef.current) {
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
+        currentDurationRef.current = elapsed;
+        setRecordingTime(elapsed);
+      }
     }, 1000);
   };
 
@@ -142,14 +173,17 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
     setIsRecording(false);
     setIsSimulating(false);
     setHasRecording(true);
-    
+
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
     }
-    
+
+    // Calculate final duration for simulation
+    const finalDuration = currentDurationRef.current;
+
     // Notify parent component with simulated recording data
     onRecordingComplete({
-      duration: formatTime(recordingTime)
+      duration: formatTime(finalDuration),
     });
   };
 
@@ -158,17 +192,24 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
       stopSimulation();
       return;
     }
-    
+
     if (mediaRecorderRef.current && isRecording) {
+      // Calculate final duration before stopping
+      if (startTimeRef.current) {
+        currentDurationRef.current = Math.floor(
+          (Date.now() - startTimeRef.current) / 1000
+        );
+      }
+
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      
+
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
-      
+
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach((track) => track.stop());
       }
     }
   };
@@ -195,6 +236,8 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
     setRecordingTime(0);
     setIsSimulating(false);
     setMicrophoneError(null);
+    startTimeRef.current = null;
+    currentDurationRef.current = 0;
   };
 
   return (
@@ -210,7 +253,7 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
       )}
 
       {/* Permission Instructions */}
-      {permissionState === 'denied' && (
+      {permissionState === "denied" && (
         <Alert>
           <MicOff className="h-4 w-4" />
           <AlertDescription className="text-sm">
@@ -234,10 +277,12 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
               <Mic className="w-4 h-4 mr-2" />
               Record
             </Button>
-            
-            {(microphoneError || permissionState === 'denied') && (
+
+            {(microphoneError || permissionState === "denied") && (
               <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">Or practice without recording:</p>
+                <p className="text-sm text-muted-foreground">
+                  Or practice without recording:
+                </p>
                 <Button onClick={startSimulation} variant="outline" size="lg">
                   <MicOff className="w-4 h-4 mr-2" />
                   Simulate Recording
@@ -246,14 +291,18 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
             )}
           </div>
         )}
-        
+
         {isRecording && (
           <div className="space-y-4">
             <div className="flex items-center justify-center space-x-4">
               <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-              <span className="text-lg font-mono">{formatTime(recordingTime)}</span>
+              <span className="text-lg font-mono">
+                {formatTime(recordingTime)}
+              </span>
               {isSimulating && (
-                <span className="text-sm text-muted-foreground">(Simulated)</span>
+                <span className="text-sm text-muted-foreground">
+                  (Simulated)
+                </span>
               )}
             </div>
             <Button onClick={stopRecording} variant="destructive" size="lg">
@@ -262,7 +311,7 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
             </Button>
           </div>
         )}
-        
+
         {hasRecording && !isRecording && (
           <div className="space-y-4">
             <div className="flex items-center justify-center space-x-4">
@@ -286,12 +335,12 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
                   <span className="text-sm">Simulated recording</span>
                 </div>
               )}
-              
+
               <Button onClick={resetRecording} variant="outline">
                 Record Again
               </Button>
             </div>
-            
+
             {audioUrl && (
               <audio
                 ref={audioRef}
@@ -305,13 +354,13 @@ export function VoiceRecorder({ onRecordingComplete }: VoiceRecorderProps) {
       </div>
 
       {/* Recording Instructions */}
-      {!microphoneError && permissionState !== 'denied' && (
+      {!microphoneError && permissionState !== "denied" && (
         <div className="text-sm text-muted-foreground text-center space-y-2">
           <p>🎤 Make sure your microphone is enabled</p>
           <p>Speak clearly and at a comfortable volume</p>
         </div>
       )}
-      
+
       {isSimulating && (
         <div className="text-sm text-muted-foreground text-center space-y-2">
           <p>📝 Simulation mode: Practice speaking your response aloud</p>
