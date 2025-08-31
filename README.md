@@ -5,7 +5,7 @@ This is a monorepo for the 'IELTS Speaking AI' project.
 It contains three main parts:
 ```
 ├── frontend  
-├── backend    
+├── backend
 └── ai        
 ```
 
