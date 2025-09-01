@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config'; // ✅ import ConfigModule
 import { UserModule } from './user/user.module';
 import { TrainingModule } from './training/training.module';
 import { HistoryModule } from './history/history.module';
@@ -11,6 +12,7 @@ import { QuestionTempController } from './entities/questions.temp';
 
 @Module({
   imports: [
+    ConfigModule.forRoot({ isGlobal: true }), // ✅ loads .env everywhere
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST || 'localhost',
@@ -19,7 +21,7 @@ import { QuestionTempController } from './entities/questions.temp';
       password: process.env.DB_PASS || '5432',
       database: process.env.DB_NAME || 'ielts_backend',
       entities: [User, Question, Answer],
-      synchronize: false,
+      synchronize: true,
     }),
     AuthModule,
     UserModule,
@@ -28,4 +30,4 @@ import { QuestionTempController } from './entities/questions.temp';
   ],
   controllers: [QuestionTempController],
 })
-export class AppModule { }
+export class AppModule {}

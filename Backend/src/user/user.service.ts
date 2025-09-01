@@ -27,6 +27,15 @@ export class UserService {
     return user;
   }
 
+  async findByEmail(email: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { email } });
+  }
+
+  async create(data: Partial<User>): Promise<User> {
+    const user = this.userRepository.create(data);
+    return this.userRepository.save(user);
+  }
+
   async getOverallScore(userId: number): Promise<number> {
     const user = await this.userRepository.findOne({
       where: { id: userId },
