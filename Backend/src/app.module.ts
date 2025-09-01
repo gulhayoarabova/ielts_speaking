@@ -11,23 +11,23 @@ import { AuthModule } from './auth/auth.module';
 import { QuestionTempController } from './entities/questions.temp';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }), // ✅ loads .env everywhere
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT ?? 5432),
-      username: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASS || '5432',
-      database: process.env.DB_NAME || 'ielts_backend',
-      entities: [User, Question, Answer],
-      synchronize: true,
-    }),
-    AuthModule,
-    UserModule,
-    TrainingModule,
-    HistoryModule,
-  ],
+  // imports: [
+  //   ConfigModule.forRoot({ isGlobal: true }), // ✅ loads .env everywhere
+  //   TypeOrmModule.forRoot({
+  //     type: 'postgres',
+  //     host: process.env.DB_HOST || 'localhost',
+  //     port: Number(process.env.DB_PORT ?? 5432),
+  //     username: process.env.DB_USER || 'postgres',
+  //     password: process.env.DB_PASS || '5432',
+  //     database: process.env.DB_NAME || 'ielts_backend',
+  //     entities: [User, Question, Answer],
+  //     synchronize: true,
+  //   }),
+  //   AuthModule,
+  //   UserModule,
+  //   TrainingModule,
+  //   HistoryModule,
+  // ],
   controllers: [QuestionTempController],
 })
 export class AppModule {}
