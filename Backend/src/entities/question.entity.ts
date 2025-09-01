@@ -4,14 +4,14 @@ import { Answer } from './answer.entity';
 @Entity()
 export class Question {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @Column('text')
-  text: string;
+  text!: string;
 
   @Column({ type: 'text', nullable: true })
-  imageUrl: string | null;
+  imageUrl!: string | null;
 
   @OneToMany(() => Answer, (answer) => answer.question)
-  answers: Answer[];
+  answers!: Answer[];
 }
