@@ -1,20 +1,23 @@
+import { Answer } from 'src/entities/answer.entity';
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany } from 'typeorm';
-import { Answer } from '../entities/answer.entity';
 
 @Entity()
 export class User {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  googleId: string;
-
-  @Column({ unique: true })
+  @Column({ unique: true, nullable: true })
   email: string;
+
+  @Column({ nullable: true })
+  password: string; // hashed password
 
   @Column()
   name: string;
 
-  @OneToMany(() => Answer, (answer) => answer.user)
+  @Column({ unique: true, nullable: true })
+  googleId: string;
+
+  @OneToMany(() => Answer, (answer) => answer.user, { cascade: true })
   answers: Answer[];
 }
