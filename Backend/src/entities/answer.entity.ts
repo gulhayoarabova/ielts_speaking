@@ -5,38 +5,38 @@ import { Question } from './question.entity';
 @Entity()
 export class Answer {
   @PrimaryGeneratedColumn()
-  id: number;
+  id!: number;
 
   @ManyToOne(() => User, (user) => user.answers)
-  user: User;
+  user!: User;
 
   @ManyToOne(() => Question, (question) => question.answers)
-  question: Question;
+  question!: Question;
 
   @Column()
-  audioUrl: string;
+  audioUrl!: string;
 
   @Column('text')
-  transcript: string;
+  transcript!: string;
 
   @Column()
-  fluency: number;
+  fluency!: number;
 
   @Column()
-  grammar: number;
+  grammar!: number;
 
   @Column()
-  vocabulary: number;
+  vocabulary!: number;
 
   @Column()
-  pronunciation: number;
+  pronunciation!: number;
 
   @Column()
-  overall: number;
+  overall!: number;
 
   @Column('text', { nullable: true })
-  improvement: string | null;
+  improvement!: string | null;
 
   @Column()
-  timestamp: Date;
+  timestamp!: Date;
 }
