@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>IELTS Speaking Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 700px; margin: auto; padding: 20px; }
+    button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+    textarea { width: 100%; height: 100px; margin: 10px 0; }
+    .card { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h1>IELTS Speaking Test</h1>
+
+  <div class="card">
+    <p><b>Question:</b> <span id="question">Describe your favorite holiday.</span></p>
+  </div>
+
+  <div>
+    <button onclick="startRecording()">🎤 Start Recording</button>
+    <button onclick="stopRecording()">⏹ Stop Recording</button>
+  </div>
+
+  <div>
+    <label><input type="checkbox" id="manualToggle" onchange="toggleManual()"> Use text instead</label>
+    <textarea id="manualText" style="display:none;" placeholder="Type your answer here..."></textarea>
+  </div>
+
+  <button onclick="submitAnswer()">Submit</button>
+
+  <div id="results"></div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let audioBlob = null;
+
+    async function startRecording() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.onstop = () => {
+        audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+      };
+
+      mediaRecorder.start();
+    }
+
+    function stopRecording() {
+      if (mediaRecorder) {
+        mediaRecorder.stop();
+      }
+    }
+
+    function toggleManual() {
+      const manualText = document.getElementById("manualText");
+      manualText.style.display = document.getElementById("manualToggle").checked ? "block" : "none";
+    }
+
+    async function submitAnswer() {
+      const question = document.getElementById("question").innerText;
+      const manualMode = document.getElementById("manualToggle").checked;
+      const formData = new FormData();
+      formData.append("question", question);
+
+      if (manualMode) {
+        formData.append("manual_text", document.getElementById("manualText").value);
+      } else if (audioBlob) {
+        formData.append("audio", audioBlob, "answer.wav");
+      } else {
+        alert("Please record or type an answer!");
+        return;
+      }
+
+      document.getElementById("results").innerHTML = "⏳ Evaluating...";
+
+      try {
+        const res = await fetch("http://localhost:5000/evaluate", {
+          method: "POST",
+          body: formData
+        });
+        const data = await res.json();
+
+        if (data.evaluation && !data.evaluation.error) {
+          document.getElementById("results").innerHTML = `
+            <div class="card">
+              <p><b>Transcript:</b> ${data.transcript}</p>
+              <p><b>Overall Band:</b> ${data.evaluation.overall_band}</p>
+              <p><b>Fluency:</b> ${data.evaluation.fluency}</p>
+              <p><b>Vocabulary:</b> ${data.evaluation.vocabulary}</p>
+              <p><b>Grammar:</b> ${data.evaluation.grammar}</p>
+              <p><b>Pronunciation:</b> ${data.evaluation.pronunciation}</p>
+              <p><b>Strengths:</b> ${data.evaluation.strengths?.join(", ")}</p>
+              <p><b>Weaknesses:</b> ${data.evaluation.weaknesses?.join(", ")}</p>
+            </div>
+          `;
+        } else {
+          document.getElementById("results").innerHTML = `<div class="card">❌ Error: ${data.evaluation?.error || "Unknown error"}</div>`;
+        }
+      } catch (err) {
+        document.getElementById("results").innerHTML = `<div class="card">⚠️ Request failed: ${err}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
