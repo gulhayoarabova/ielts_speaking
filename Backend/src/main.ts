@@ -24,7 +24,7 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config, {
     include: [
       // Explicitly include all modules to ensure controllers are scanned
-      // AppModule,
+      AppModule,
       // AuthModule,
       // UserModule,
       // TrainingModule,
