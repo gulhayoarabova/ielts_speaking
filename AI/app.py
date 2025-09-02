@@ -22,7 +22,7 @@ origins = [
     "http://localhost:3000",      # React local dev
     "http://127.0.0.1:3000",      # React local dev (sometimes uses 127.0.0.1)
     "https://ielts-speaking-9aqo.onrender.com",  # Your backend deployed
-    "http://your-frontend-domain.com",  # replace with real frontend domain if hosted
+    "https://ielts-speaking-1.onrender.com",  # replace with real frontend domain if hosted
 ]
 
 app.add_middleware(
