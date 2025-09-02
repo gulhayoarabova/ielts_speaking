@@ -1,117 +1,159 @@
-import React, { useEffect, useState } from "react";
-import { Card } from "./ui/card";
+import React, { useEffect, useMemo, useState } from "react";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 
-// Part 1 Questions (Simple, personal questions)
-const PART1_QUESTIONS = [
-  "Describe yourself and your family. What do you do for work or study?",
-  "What are your hobbies and interests? How do you spend your free time?",
-  "Tell me about your hometown. What do you like most about it?",
-  "Do you prefer to live in a city or in the countryside? Why?",
-  "What kind of food do you like? Do you enjoy cooking?",
-  "How do you usually travel to work or school? Do you like this method of transport?",
-  "What's your favorite season and why? How does weather affect your mood?",
-  "Do you like reading books? What kind of books do you prefer?",
-  "Tell me about your daily routine. How has it changed over the years?",
-  "Do you prefer to shop online or in physical stores? Why?",
-  "What kind of music do you like? Do you play any musical instruments?",
-  "How do you usually spend your weekends?",
-  "Do you like watching TV? What's your favorite TV program?",
-  "Tell me about your friends. How did you meet them?",
-  "What do you like about your job or studies?",
-  "Do you enjoy traveling? Where have you been recently?",
-  "What's your favorite way to relax?",
-  "Do you like sports? Which ones do you enjoy watching or playing?",
-  "How has technology changed your daily life?",
-  "What do you usually do in your free time?",
-];
-
-// Image search queries for Part 2 description tasks
-const IMAGE_SEARCH_QUERIES = [
-  "family gathering celebration",
-  "modern office workspace",
-  "beautiful park landscape",
-  "busy city street",
-  "traditional market food",
-  "students studying library",
-  "people exercising outdoors",
-  "mountain hiking adventure",
-  "beach sunset landscape",
-  "art gallery exhibition",
-];
+// --- Types ---
+interface ApiQuestion {
+  question: string;
+  image?: string;
+}
 
 interface QuestionGeneratorProps {
   onQuestionGenerated: (question: string) => void;
   currentQuestion: string;
-  questionCount: number;
+  questionCount: number; // 0..5 (0-4 Part 1, 5 = image task)
 }
+
+// --- Config ---
+const QUESTIONS_API_URL =
+  "https://ielts-speaking-1.onrender.com/generate-question";
+
+const IMAGE_TASK_PROMPT =
+  "Look at the image below and describe what you see. Speak for 2–3 minutes. Include: what is happening, who/what is visible, the setting/location, and your thoughts or feelings.";
+
+const FALLBACK_IMAGE =
+  "https://images.unsplash.com/photo-1529101091764-c3526daf38fe?q=80&w=1080&auto=format&fit=crop";
 
 export function QuestionGenerator({
   onQuestionGenerated,
   currentQuestion,
   questionCount,
 }: QuestionGeneratorProps) {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [apiQuestions, setApiQuestions] = useState<ApiQuestion[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingImage, setIsLoadingImage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
+  // --- Fetch question from API ---
   useEffect(() => {
-    if (!currentQuestion) {
-      if (questionCount < 5) {
-        // Generate Part 1 question for first 5 questions
-        const randomIndex = Math.floor(Math.random() * PART1_QUESTIONS.length);
-        const selectedQuestion = PART1_QUESTIONS[randomIndex];
-        onQuestionGenerated(selectedQuestion);
-      } else if (questionCount === 5) {
-        // Generate image description task for 6th question
-        generateImageDescriptionTask();
+    const controller = new AbortController();
+
+    (async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        const res = await fetch(QUESTIONS_API_URL, {
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+          },
+        });
+
+        if (!res.ok) throw new Error(`API error: ${res.status}`);
+
+        const data = await res.json();
+        console.log("API RESPONSE:", data);
+
+        // ✅ Handle single object response
+        if (!data || typeof data.question !== "string") {
+          throw new Error("Unexpected API response format");
+        }
+
+        // Wrap into an array for internal consistency
+        const cleaned: ApiQuestion[] = [
+          {
+            question: data.question.trim(),
+            image: data.image ? data.image.trim() : FALLBACK_IMAGE,
+          },
+        ];
+
+        setApiQuestions(cleaned);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          setError(e?.message || "Failed to load questions.");
+        }
+      } finally {
+        setIsLoading(false);
       }
+    })();
+
+    return () => controller.abort();
+  }, []);
+
+  // --- Precompute Part 2 image (if any) ---
+  const part2ImageUrl = useMemo(() => {
+    if (apiQuestions.length > 0 && apiQuestions[0].image)
+      return apiQuestions[0].image;
+    return FALLBACK_IMAGE;
+  }, [apiQuestions]);
+
+  // --- Generate current question ---
+  useEffect(() => {
+    if (isLoading || error || currentQuestion) return;
+
+    if (questionCount < 5) {
+      // Always reuse the same single question from API
+      const q = apiQuestions[0]?.question;
+      if (q) onQuestionGenerated(q);
+    } else if (questionCount === 5) {
+      // Image description task
+      setIsLoadingImage(true);
+      setImageUrl(part2ImageUrl);
+      onQuestionGenerated(IMAGE_TASK_PROMPT);
+      setIsLoadingImage(false);
     }
-  }, [currentQuestion, questionCount, onQuestionGenerated]);
+  }, [
+    isLoading,
+    error,
+    currentQuestion,
+    questionCount,
+    apiQuestions,
+    onQuestionGenerated,
+    part2ImageUrl,
+  ]);
 
-  const generateImageDescriptionTask = () => {
-    setIsLoadingImage(true);
-
-    // Set up the image question
-    const imageQuestion =
-      "Look at the image below and describe what you see. You should speak for 2-3 minutes and include: what is happening in the image, who or what you can see, the setting or location, and your thoughts or feelings about what you observe.";
-
-    // Use the fetched image from Unsplash
-    setImageUrl(
-      "https://images.unsplash.com/photo-1722252799088-4781aabc3d0f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW1pbHklMjBnYXRoZXJpbmclMjBjZWxlYnJhdGlvbnxlbnwxfHx8fDE3NTY1NzM5NTF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-    );
-    onQuestionGenerated(imageQuestion);
-    setIsLoadingImage(false);
-  };
-
-  if (!currentQuestion || isLoadingImage) {
+  // --- Loading / Error States ---
+  if (isLoading || isLoadingImage) {
     return (
       <div className="text-center py-4">
         <p className="text-muted-foreground">
           {isLoadingImage
             ? "Loading image for description task..."
-            : "Generating question..."}
+            : "Fetching questions..."}
         </p>
       </div>
     );
   }
 
+  if (error) {
+    return (
+      <div className="text-center py-4 text-red-500">
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  // --- UI Rendering ---
   const isImageQuestion = questionCount === 5;
   const questionType =
     questionCount < 5 ? "Part 1" : "Part 2 - Image Description";
 
   return (
     <div className="space-y-4">
-      {/* Question Progress */}
+      {/* Progress */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Question {questionCount + 1} of 6</span>
         <span className="bg-primary/10 px-2 py-1 rounded">{questionType}</span>
       </div>
 
+      {/* Question Box */}
       <div className="p-6 bg-primary/5 border border-primary/20 rounded-lg">
         <h2 className="mb-4">Your Speaking Question:</h2>
         <p className="leading-relaxed mb-4">{currentQuestion}</p>
 
-        {/* Display image for image description questions */}
+        {/* Image Task */}
         {isImageQuestion && imageUrl && (
           <div className="mt-4">
             <ImageWithFallback
@@ -123,25 +165,26 @@ export function QuestionGenerator({
         )}
       </div>
 
+      {/* Instructions */}
       <div className="text-sm text-muted-foreground space-y-2">
         <p>
           <strong>Instructions:</strong>
         </p>
         <ul className="list-disc list-inside space-y-1 ml-4">
-          <li>Take a moment to think about your answer</li>
-          <li>Speak clearly and at a natural pace</li>
+          <li>Take a moment to think about your answer.</li>
+          <li>Speak clearly and at a natural pace.</li>
           {questionCount < 5 ? (
-            <li>Try to speak for 1-2 minutes and give specific examples</li>
+            <li>Try to speak for 1–2 minutes and give specific examples.</li>
           ) : (
             <>
-              <li>Speak for 2-3 minutes describing the image in detail</li>
+              <li>Speak for 2–3 minutes describing the image in detail.</li>
               <li>
                 Include what you see, the setting, people/objects, and your
-                impressions
+                impressions.
               </li>
             </>
           )}
-          <li>Use specific examples and details in your response</li>
+          <li>Use specific examples and details in your response.</li>
         </ul>
       </div>
     </div>
