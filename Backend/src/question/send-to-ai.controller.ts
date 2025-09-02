@@ -1,35 +1,39 @@
-import {
-  Controller,
-  Post,
-  UploadedFile,
-  UseInterceptors,
+import { 
+  Controller, Post, UploadedFile, UseInterceptors, Body, Get 
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { ApiConsumes, ApiBody, ApiTags, ApiResponse } from '@nestjs/swagger';
 import { SendToAiService } from './send-to-ai.service';
+import { SendAudioDto } from './send-audio.dto';
+import { GeneratedQuestionDto } from './generated-question.dto';
 
-@ApiTags('AI Evaluation')
-@Controller('send-audio')
+@ApiTags('ielts')
+@Controller()
 export class SendToAiController {
   constructor(private readonly sendToAiService: SendToAiService) {}
 
-  @Post()
-  @UseInterceptors(FileInterceptor('file'))
+  @Post('send-audio')
+  @UseInterceptors(FileInterceptor('audio', { dest: './uploads' }))
   @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          format: 'binary',
-        },
-      },
-    },
-  })
-  async uploadFile(@UploadedFile() file: Express.Multer.File) {
-    const filePath = file.path;
-    const result = await this.sendToAiService.sendAudioToAI(filePath);
-    return { success: true, result };
+  @ApiBody({ type: SendAudioDto })
+  @ApiResponse({ status: 200, description: 'Evaluation result from AI service' })
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('question') question: string,
+  ) {
+    if (!file || !file.path) {
+      throw new Error('File not uploaded correctly');
+    }
+    if (!question) {
+      throw new Error('Question is required');
+    }
+
+    return this.sendToAiService.sendAudioToAI(file.path, question);
+  }
+
+  @Get('generate-question')
+  @ApiResponse({ status: 200, description: 'Randomly generated IELTS question', type: GeneratedQuestionDto })
+  async getQuestion() {
+    return this.sendToAiService.generateQuestion();
   }
 }
