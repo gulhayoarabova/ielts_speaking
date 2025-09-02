@@ -9,8 +9,11 @@ import { Question } from './entities/question.entity';
 import { Answer } from './entities/answer.entity';
 import { AuthModule } from './auth/auth.module';
 import { QuestionTempController } from './entities/questions.temp';
+import { SendToAiController } from './question/send-to-ai.controller';
+import { SendToAiModule } from './question/send-to-ai.module';
 
 @Module({
+  imports: [SendToAiModule],
   // imports: [
   //   ConfigModule.forRoot({ isGlobal: true }), // ✅ loads .env everywhere
   //   TypeOrmModule.forRoot({
@@ -28,6 +31,6 @@ import { QuestionTempController } from './entities/questions.temp';
   //   TrainingModule,
   //   HistoryModule,
   // ],
-  controllers: [QuestionTempController],
+  controllers: [QuestionTempController, SendToAiController],
 })
-export class AppModule {}
+export class AppModule { }

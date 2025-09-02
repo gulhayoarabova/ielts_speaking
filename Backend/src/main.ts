@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UserModule } from './user/user.module';
 import { TrainingModule } from './training/training.module';
 import { HistoryModule } from './history/history.module';
+import { SendToAiModule } from './question/send-to-ai.module';
 dotenv.config();
 
 async function bootstrap() {
@@ -25,6 +26,7 @@ async function bootstrap() {
     include: [
       // Explicitly include all modules to ensure controllers are scanned
       AppModule,
+      SendToAiModule,
       // AuthModule,
       // UserModule,
       // TrainingModule,
