@@ -35,7 +35,7 @@ async function bootstrap() {
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:3000', 'https://ielts-speaking-practice.vercel.app'],
+    origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:8080', 'http://192.168.0.174:8080', 'https://ielts-speaking-practice.vercel.app'],
     credentials: true,
   });
   await app.listen(3000);
