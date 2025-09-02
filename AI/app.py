@@ -8,15 +8,26 @@ from dotenv import load_dotenv
 from groq import Groq
 import random
 import re
+from fastapi.middleware.cors import CORSMiddleware
 
 # Init app
 app = FastAPI()
 
 load_dotenv()
 
+
+
+# Define allowed origins
+origins = [
+    "http://localhost:3000",      # React local dev
+    "http://127.0.0.1:3000",      # React local dev (sometimes uses 127.0.0.1)
+    "https://ielts-speaking-9aqo.onrender.com",  # Your backend deployed
+    "http://your-frontend-domain.com",  # replace with real frontend domain if hosted
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
