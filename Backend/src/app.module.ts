@@ -11,9 +11,11 @@ import { AuthModule } from './auth/auth.module';
 import { QuestionTempController } from './entities/questions.temp';
 import { SendToAiController } from './question/send-to-ai.controller';
 import { SendToAiModule } from './question/send-to-ai.module';
+import { ChatGateway } from './chat/chat.gateway';
 
 @Module({
-  imports: [SendToAiModule],
+  imports: [SendToAiModule ],
+  providers: [ChatGateway],
   // imports: [
   //   ConfigModule.forRoot({ isGlobal: true }), // ✅ loads .env everywhere
   //   TypeOrmModule.forRoot({
