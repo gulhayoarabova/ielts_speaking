@@ -2,8 +2,8 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { QuestionGenerator } from "@/components/QuestionGenerator";
-import { VoiceRecorder } from "@/components/VoiceRecorder";
 import { FeedbackDisplay } from "@/components/FeedbackDisplay";
+import VoiceRecorder from "@/components/VoiceRecorder";
 
 interface RecordingData {
   duration: string;
@@ -123,7 +123,10 @@ function Speaking() {
                 <CardTitle>Voice Recording</CardTitle>
               </CardHeader>
               <CardContent>
-                <VoiceRecorder onRecordingComplete={handleRecordingComplete} />
+                <VoiceRecorder
+                  question={currentQuestion}
+                  onRecordingComplete={handleRecordingComplete}
+                />
 
                 {recordingData && (
                   <div className="mt-4 space-y-4">

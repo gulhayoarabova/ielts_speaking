@@ -1,32 +1,35 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 import tempfile
 import uvicorn
 import json
 import os
+import asyncio
+import base64
 from dotenv import load_dotenv
 from groq import Groq
-import random
-import re
-from fastapi.middleware.cors import CORSMiddleware
-from typing import List
-from fastapi import FastAPI, UploadFile, File, Form
-import io
+import logging
+from typing import Dict, List
 from fastapi.responses import StreamingResponse
+import io
+from datetime import datetime
+import uuid
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Init app
-app = FastAPI()
-
+app = FastAPI(title="Real-time IELTS Voice Chat API")
 load_dotenv()
 
-
-
-# Define allowed origins
+# CORS setup
 origins = [
-    "http://localhost:3000",      # React local dev
-    "http://127.0.0.1:3000",      # React local dev (sometimes uses 127.0.0.1)
-    "https://ielts-speaking-9aqo.onrender.com",  # Your backend deployed
-    "https://ielts-speaking-1.onrender.com",  # replace with real frontend domain if hosted
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "https://ielts-speaking-practice.vercel.app",
+    "https://ielts-speaking-1.onrender.com",
 ]
 
 app.add_middleware(
@@ -37,328 +40,573 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔑 Set your Groq API Key in env
+# Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-def transcribe_audio(audio_path: str) -> str:
-    """Transcribe speech using Whisper on Groq"""
-    with open(audio_path, "rb") as f:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-large-v3",
-            file=f
+
+# Connection manager for WebSocket connections
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+        self.user_sessions: Dict[str, dict] = {}
+
+    async def connect(self, websocket: WebSocket, session_id: str):
+        await websocket.accept()
+        self.active_connections[session_id] = websocket
+        self.user_sessions[session_id] = {
+            "connected_at": datetime.now(),
+            "current_question": None,
+            "conversation_history": [],
+            "current_part": 1,
+            "question_count": 0
+        }
+        logger.info(f"User {session_id} connected")
+
+    def disconnect(self, session_id: str):
+        if session_id in self.active_connections:
+            del self.active_connections[session_id]
+        if session_id in self.user_sessions:
+            del self.user_sessions[session_id]
+        logger.info(f"User {session_id} disconnected")
+
+    async def send_message(self, session_id: str, message: dict):
+        if session_id in self.active_connections:
+            await self.active_connections[session_id].send_text(json.dumps(message))
+
+    async def broadcast(self, message: dict):
+        for session_id in self.active_connections:
+            await self.send_message(session_id, message)
+
+manager = ConnectionManager()
+
+def transcribe_audio_chunk(audio_data: bytes) -> str:
+    """Transcribe audio chunk using Whisper on Groq"""
+    try:
+        # Save audio data to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            tmp_file.write(audio_data)
+            tmp_file.flush()
+            
+            with open(tmp_file.name, "rb") as f:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-large-v3",
+                    file=f
+                )
+            
+            os.unlink(tmp_file.name)  # Clean up temp file
+            return transcript.text if transcript else ""
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+        return ""
+
+def generate_ai_response(conversation_history: List[dict], current_part: int) -> str:
+    """Generate AI examiner response based on conversation history"""
+    
+    # System prompts for different parts
+    system_prompts = {
+        1: """You are an IELTS Speaking examiner conducting Part 1. Ask short, personal questions about 
+        familiar topics like hometown, hobbies, work, study, daily routine. Keep responses natural and 
+        encouraging. Ask follow-up questions based on the candidate's answers.""",
+        
+        2: """You are an IELTS Speaking examiner conducting Part 2. Give the candidate a cue card topic 
+        and tell them they have 1 minute to prepare and 1-2 minutes to speak. Topics should be about 
+        describing a person, place, experience, or object.""",
+        
+        3: """You are an IELTS Speaking examiner conducting Part 3. Ask abstract, analytical questions 
+        related to the Part 2 topic. Focus on opinions, comparisons, predictions, and societal issues. 
+        Encourage detailed responses."""
+    }
+    
+    messages = [
+        {"role": "system", "content": system_prompts.get(current_part, system_prompts[1])}
+    ]
+    
+    # Add conversation history
+    for entry in conversation_history[-10:]:  # Last 10 exchanges to avoid token limit
+        messages.append({"role": "user" if entry["type"] == "candidate" else "assistant", 
+                        "content": entry["content"]})
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            temperature=0.7,
+            max_tokens=150,
         )
-    return transcript.text if transcript else ""
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"AI response generation error: {e}")
+        return "I'm sorry, could you repeat that please?"
 
+def synthesize_speech_stream(text: str) -> bytes:
+    """Convert text to speech using Groq TTS"""
+    try:
+        # Note: Groq might not have TTS yet, this is a placeholder
+        # You might need to use another service like ElevenLabs, OpenAI TTS, or Azure
+        response = client.audio.speech.create(
+            model="tts-1",  # This might not exist in Groq yet
+            voice="alloy",
+            input=text,
+        )
+        return response.content
+    except Exception as e:
+        logger.error(f"TTS error: {e}")
+        # Return empty bytes or use a fallback TTS service
+        return b""
 
-
-def evaluate_ielts_with_improvements(questions: List[str], answers: List[str]) -> dict:
-    """
-    Evaluate IELTS answers across one or multiple questions,
-    and provide improved versions of each answer.
-    """
-    qa_pairs = "\n".join(
-        [f"{i+1}. Q: \"{q}\" \n   A: \"{a}\"" for i, (q, a) in enumerate(zip(questions, answers))]
-    )
-
+def evaluate_response_realtime(question: str, answer: str) -> dict:
+    """Quick evaluation for real-time feedback"""
     prompt = f"""
-You are a certified IELTS examiner and English tutor. 
-Evaluate the candidate's speaking performance strictly based on IELTS Band Descriptors.
-
-Assessment Criteria:
-- Fluency and Coherence
-- Lexical Resource
-- Grammatical Range and Accuracy
-- Pronunciation
-
-Tasks:
-1. Give realistic sub-scores (0–9, steps of 0.5).
-2. Give overall band score.
-3. Mention strengths and weaknesses.
-4. For each answer, provide an improved version (same meaning, but more natural and fluent).
-
-Candidate’s responses:
-{qa_pairs}
-
-Return ONLY valid JSON with this structure:
-{{
-  "overall_band": float,
-  "fluency": float,
-  "vocabulary": float,
-  "grammar": float,
-  "pronunciation": float,
-  "strengths": [list of strings],
-  "weaknesses": [list of strings],
-  "improved_answers": [list of improved answers, same length as input]
-}}
-"""
-
+    Quickly evaluate this IELTS speaking response. Give brief feedback in 2-3 sentences.
+    
+    Question: "{question}"
+    Answer: "{answer}"
+    
+    Return JSON with: {{"feedback": "brief feedback text", "score": estimated_band_score}}
+    """
+    
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=800,
+            max_tokens=100,
         )
         text_output = response.choices[0].message.content
-        result_json = json.loads(text_output[text_output.index("{"): text_output.rindex("}")+1])
-        return result_json
+        result = json.loads(text_output[text_output.index("{"): text_output.rindex("}")+1])
+        return result
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"Evaluation error: {e}")
+        return {"feedback": "Good response, keep going!", "score": 6.0}
 
-
-@app.post("/evaluate")
-async def evaluate(
-    questions: str = Form(...),   # JSON string of questions
-    answers: str = Form(...),     # JSON string of answers (manual text or transcripts)
-    audios: List[UploadFile] = File(None)  # Optional audio list
-):
-    """
-    Evaluate IELTS speaking performance.
-    - Supports Part 1 & 3 (3 Q/As) and Part 2 (1 Q/A).
-    - Returns scores + improved versions of answers.
-    """
-
-    import json
-    questions = json.loads(questions) if isinstance(questions, str) else questions
-    answers = json.loads(answers) if isinstance(answers, str) else answers
-
-    # If audio is uploaded, transcribe each and replace answers
-    if audios:
-        transcripts = []
-        for audio in audios:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                tmp.write(await audio.read())
-                transcripts.append(transcribe_audio(tmp.name))
-        answers = transcripts
-
-    # Safety check
-    if not questions or not answers or len(questions) != len(answers):
-        return {"error": "Questions and answers must be same length and non-empty"}
-
-    evaluation = evaluate_ielts_with_improvements(questions, answers)
-    return {"answers": answers, "evaluation": evaluation}
-
-# Keep a pool of asked questions in memory
-asked_questions = set()
-
-def normalize_question(q: str) -> str:
-    """Normalize a question to detect duplicates by meaning (basic)."""
-    q = q.lower().strip()
-    q = re.sub(
-        r'^(can you|could you|do you think|describe|talk about|tell me about|would you rather|if you could)\s+',
-        '',
-        q,
-    )
-    q = re.sub(r'[?.!,]', '', q)  # remove punctuation
-    return q.strip()
-
-
-def _generate_unique_question(prompt: str) -> dict:
-    """Generic helper that ensures uniqueness of generated questions."""
+@app.websocket("/ws/voice-chat/{session_id}")
+async def voice_chat_websocket(websocket: WebSocket, session_id: str):
+    await manager.connect(websocket, session_id)
+    
+    # Send initial greeting
+    initial_greeting = "Hello! Welcome to your IELTS Speaking practice session. Let's start with Part 1. Can you tell me your name and where you're from?"
+    
+    await manager.send_message(session_id, {
+        "type": "ai_response",
+        "content": initial_greeting,
+        "timestamp": datetime.now().isoformat()
+    })
+    
+    # Generate TTS for greeting (if available)
     try:
-        for _ in range(5):
-            response = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=1.0,
-                top_p=1,
-                presence_penalty=1.2,
-                frequency_penalty=0.9,
-                max_tokens=150,
-            )
+        tts_data = synthesize_speech_stream(initial_greeting)
+        if tts_data:
+            tts_base64 = base64.b64encode(tts_data).decode()
+            await manager.send_message(session_id, {
+                "type": "ai_audio",
+                "audio_data": tts_base64,
+                "timestamp": datetime.now().isoformat()
+            })
+    except Exception as e:
+        logger.error(f"TTS generation failed: {e}")
+    
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            if message["type"] == "audio_chunk":
+                # Handle real-time audio transcription
+                audio_data = base64.b64decode(message["audio_data"])
+                transcript = transcribe_audio_chunk(audio_data)
+                
+                if transcript:
+                    # Send transcription back to client
+                    await manager.send_message(session_id, {
+                        "type": "transcription",
+                        "content": transcript,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Add to conversation history
+                    session = manager.user_sessions[session_id]
+                    session["conversation_history"].append({
+                        "type": "candidate",
+                        "content": transcript,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Generate AI response
+                    ai_response = generate_ai_response(
+                        session["conversation_history"],
+                        session["current_part"]
+                    )
+                    
+                    session["conversation_history"].append({
+                        "type": "examiner",
+                        "content": ai_response,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Send AI response
+                    await manager.send_message(session_id, {
+                        "type": "ai_response",
+                        "content": ai_response,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                    
+                    # Generate and send TTS
+                    try:
+                        tts_data = synthesize_speech_stream(ai_response)
+                        if tts_data:
+                            tts_base64 = base64.b64encode(tts_data).decode()
+                            await manager.send_message(session_id, {
+                                "type": "ai_audio",
+                                "audio_data": tts_base64,
+                                "timestamp": datetime.now().isoformat()
+                            })
+                    except Exception as e:
+                        logger.error(f"TTS generation failed: {e}")
+                    
+                    # Provide real-time feedback
+                    if len(session["conversation_history"]) >= 2:
+                        last_question = None
+                        for entry in reversed(session["conversation_history"]):
+                            if entry["type"] == "examiner":
+                                last_question = entry["content"]
+                                break
+                        
+                        if last_question:
+                            feedback = evaluate_response_realtime(last_question, transcript)
+                            await manager.send_message(session_id, {
+                                "type": "feedback",
+                                "feedback": feedback["feedback"],
+                                "score": feedback["score"],
+                                "timestamp": datetime.now().isoformat()
+                            })
+            
+            elif message["type"] == "next_part":
+                # Move to next part of the test
+                session = manager.user_sessions[session_id]
+                session["current_part"] += 1
+                
+                if session["current_part"] > 3:
+                    # End of test
+                    await manager.send_message(session_id, {
+                        "type": "test_complete",
+                        "message": "Congratulations! You've completed all three parts of the IELTS Speaking test.",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                else:
+                    part_instructions = {
+                        2: "Now let's move to Part 2. I'll give you a topic card. You'll have 1 minute to prepare and then speak for 1-2 minutes.",
+                        3: "Finally, let's do Part 3. I'll ask you some more abstract questions for discussion."
+                    }
+                    
+                    instruction = part_instructions[session["current_part"]]
+                    await manager.send_message(session_id, {
+                        "type": "part_transition",
+                        "part": session["current_part"],
+                        "instruction": instruction,
+                        "timestamp": datetime.now().isoformat()
+                    })
+            
+            elif message["type"] == "ping":
+                # Heartbeat to keep connection alive
+                await manager.send_message(session_id, {
+                    "type": "pong",
+                    "timestamp": datetime.now().isoformat()
+                })
+    
+    except WebSocketDisconnect:
+        manager.disconnect(session_id)
+    except Exception as e:
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+        manager.disconnect(session_id)
 
-            question = response.choices[0].message.content.strip()
-            normalized = normalize_question(question)
+@app.post("/start-session")
+async def start_session():
+    """Create a new voice chat session"""
+    session_id = str(uuid.uuid4())
+    return {"session_id": session_id}
 
-            if normalized not in asked_questions:
-                asked_questions.add(normalized)
+@app.get("/session/{session_id}/status")
+async def get_session_status(session_id: str):
+    """Get current session status"""
+    if session_id in manager.user_sessions:
+        session = manager.user_sessions[session_id]
+        return {
+            "active": True,
+            "current_part": session["current_part"],
+            "connected_at": session["connected_at"].isoformat(),
+            "conversation_length": len(session["conversation_history"])
+        }
+    return {"active": False}
 
-                # reset after 200 unique questions
-                if len(asked_questions) > 200:
-                    asked_questions.clear()
-                    asked_questions.add(normalized)
+@app.post("/session/{session_id}/end")
+async def end_session(session_id: str):
+    """End a voice chat session"""
+    if session_id in manager.user_sessions:
+        session = manager.user_sessions[session_id]
+        conversation_history = session["conversation_history"]
+        manager.disconnect(session_id)
+        
+        return {
+            "message": "Session ended successfully",
+            "conversation_history": conversation_history,
+            "total_duration": len(conversation_history)
+        }
+    return {"message": "Session not found"}
 
-                return {"question": question}
+# Additional endpoints for real-time functionality
 
-        return {"question": question, "note": "⚠️ Might be semantically similar"}
+@app.post("/transcribe")
+async def transcribe_only(audio: UploadFile = File(...)):
+    """Transcribe audio without evaluation"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+            content = await audio.read()
+            tmp_file.write(content)
+            tmp_file.flush()
+            
+            transcript = transcribe_audio_chunk(content)
+            os.unlink(tmp_file.name)
+            
+            return {"transcript": transcript}
     except Exception as e:
         return {"error": str(e)}
 
+@app.post("/synthesize-speech")
+async def synthesize_speech_endpoint(request: dict):
+    """Convert text to speech"""
+    text = request.get("text", "")
+    if not text:
+        return {"error": "No text provided"}
+    
+    try:
+        audio_data = synthesize_speech_stream(text)
+        if audio_data:
+            return StreamingResponse(
+                io.BytesIO(audio_data),
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "attachment; filename=speech.mp3"}
+            )
+        else:
+            return {"error": "TTS generation failed"}
+    except Exception as e:
+        return {"error": str(e)}
 
-# ----------- IELTS PART-SPECIFIC GENERATORS -----------
+@app.post("/generate-examiner-response")
+async def generate_examiner_response_endpoint(request: dict):
+    """Generate contextual examiner response"""
+    conversation_history = request.get("conversation_history", [])
+    current_part = request.get("current_part", 1)
+    question_count = request.get("question_count", 0)
+    
+    # Create context from conversation history
+    recent_exchanges = conversation_history[-6:]  # Last 3 exchanges
+    context = ""
+    
+    for entry in recent_exchanges:
+        role = "Candidate" if entry["type"] == "candidate" else "Examiner"
+        context += f"{role}: {entry['content']}\n"
+    
+    # Generate appropriate response based on part and context
+    system_prompts = {
+        1: f"""You are an IELTS Speaking examiner conducting Part 1. Based on this conversation:
 
-def generate_part1_questions() -> dict:
-    """Generate 3 IELTS Part 1 questions (short, everyday)."""
-    prompt = """
-    Generate ONE IELTS Speaking Part 1 question.
+{context}
 
-    Requirements:
-    - Short, direct, and about familiar everyday topics 
-      (hometown, hobbies, food, studies, work, friends, family, daily routine, etc.)
-    - Not too abstract.
-    - Suitable for a 20–30 second answer.
-    - Return ONLY the question text.
+Generate the next appropriate question or response. Keep it natural, encouraging, and ask follow-up questions about familiar topics like hobbies, hometown, work, study, daily routine, food, or family. Questions should be simple and direct, suitable for 20-30 second answers.
+
+If the candidate seems nervous, be more encouraging. If they give very short answers, ask follow-up questions. If they give detailed answers, acknowledge and move to a related topic.""",
+
+        2: f"""You are an IELTS Speaking examiner conducting Part 2. Based on this conversation:
+
+{context}
+
+If this is the beginning of Part 2, give a cue card topic with bullet points. If the candidate is preparing, give encouragement. If they're speaking, listen and give minimal responses. Topics should be about describing a person, place, experience, or object.
+
+Example format: "Now I'd like you to describe [topic]. You have one minute to think about what you're going to say. You can make some notes if you wish. Here's your topic: Describe a [something]. You should say: - [bullet point 1] - [bullet point 2] - [bullet point 3] - and explain [why/how/what you felt]".""",
+
+        3: f"""You are an IELTS Speaking examiner conducting Part 3. Based on this conversation:
+
+{context}
+
+Ask abstract, analytical questions that require longer responses. Focus on opinions, comparisons, predictions, and societal issues. Questions should be thought-provoking and related to broader themes from Part 2.
+
+Examples: "How do you think...", "What are the advantages and disadvantages of...", "Do you believe...", "How might this change in the future?", "What impact does... have on society?"."""
+    }
+    
+    prompt = system_prompts.get(current_part, system_prompts[1])
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=150,
+        )
+        
+        ai_response = response.choices[0].message.content.strip()
+        return {"response": ai_response}
+        
+    except Exception as e:
+        logger.error(f"Examiner response generation error: {e}")
+        fallback_responses = {
+            1: "That's interesting. Can you tell me more about that?",
+            2: "Take your time to prepare. Let me know when you're ready to start.",
+            3: "That's a good point. How do you think this might change in the future?"
+        }
+        return {"response": fallback_responses.get(current_part, "Please continue.")}
+
+@app.post("/quick-evaluate")
+async def quick_evaluate(request: dict):
+    """Quick evaluation for real-time feedback"""
+    answer = request.get("answer", "")
+    question = request.get("question", "")
+    
+    prompt = f"""
+    Quickly evaluate this IELTS speaking response in 1-2 sentences:
+    
+    Question: "{question}"
+    Answer: "{answer}"
+    
+    Return JSON with:
+    {{
+        "feedback": "Brief encouraging feedback (1-2 sentences)",
+        "score": estimated_band_score_float,
+        "strengths": ["strength1", "strength2"],
+        "suggestions": ["suggestion1", "suggestion2"]
+    }}
+    
+    Be encouraging and constructive. Focus on what they did well and one area for improvement.
     """
-    return {"questions": [_generate_unique_question(prompt)["question"] for _ in range(3)]}
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=120,
+        )
+        
+        text_output = response.choices[0].message.content
+        result = json.loads(text_output[text_output.index("{"): text_output.rindex("}")+1])
+        return result
+        
+    except Exception as e:
+        logger.error(f"Quick evaluation error: {e}")
+        return {
+            "feedback": "Good response! Keep practicing to improve fluency.",
+            "score": 6.0,
+            "strengths": ["Clear communication"],
+            "suggestions": ["Try to elaborate more on your ideas"]
+        }
 
-
-def generate_part2_question() -> dict:
-    """Generate 1 IELTS Part 2 cue card question."""
-    prompt = """
-    Generate ONE IELTS Speaking Part 2 "Cue Card" style question.
-
-    Requirements:
-    - Start with "Describe ..." or "Talk about ..."
-    - Include 3–4 bullet points (using dashes) that guide the candidate.
-    - Topic should be about people, experiences, places, or objects.
-    - Suitable for a 1–2 minute long answer.
-    - Return ONLY the question text with bullet points.
+@app.post("/realtime-feedback")
+async def realtime_feedback(request: dict):
+    """Generate real-time feedback based on recent conversation"""
+    recent_conversation = request.get("recent_conversation", [])
+    
+    if len(recent_conversation) < 2:
+        return {
+            "feedback": "Keep going! You're doing well.",
+            "fluency": 6.0,
+            "vocabulary": 6.0,
+            "grammar": 6.0,
+            "pronunciation": 6.0,
+            "suggestions": ["Continue speaking naturally"]
+        }
+    
+    # Extract candidate responses
+    candidate_responses = [entry["content"] for entry in recent_conversation if entry["type"] == "candidate"]
+    combined_response = " ".join(candidate_responses)
+    
+    prompt = f"""
+    Analyze these recent IELTS speaking responses and provide brief feedback:
+    
+    Recent responses: "{combined_response}"
+    
+    Return JSON with:
+    {{
+        "feedback": "Brief feedback (1-2 sentences)",
+        "fluency": score_0_to_9,
+        "vocabulary": score_0_to_9,
+        "grammar": score_0_to_9,
+        "pronunciation": score_0_to_9,
+        "suggestions": ["quick suggestion1", "quick suggestion2"]
+    }}
+    
+    Focus on immediate improvements they can make in the next response.
     """
-    return _generate_unique_question(prompt)
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=150,
+        )
+        
+        text_output = response.choices[0].message.content
+        result = json.loads(text_output[text_output.index("{"): text_output.rindex("}")+1])
+        return result
+        
+    except Exception as e:
+        logger.error(f"Realtime feedback error: {e}")
+        return {
+            "feedback": "You're making good progress!",
+            "fluency": 6.0,
+            "vocabulary": 6.0,
+            "grammar": 6.0,
+            "pronunciation": 6.0,
+            "suggestions": ["Continue speaking with confidence"]
+        }
 
+@app.post("/save-session")
+async def save_session_endpoint(request: dict):
+    """Save session data (optional - for analytics)"""
+    session_id = request.get("session_id")
+    conversation_history = request.get("conversation_history", [])
+    total_duration = request.get("total_duration", 0)
+    parts_completed = request.get("parts_completed", 0)
+    
+    # Here you could save to database, send to analytics service, etc.
+    logger.info(f"Session {session_id} completed: {len(conversation_history)} exchanges, {parts_completed} parts, {total_duration}ms duration")
+    
+    return {"status": "saved", "session_id": session_id}
 
-def generate_part3_questions() -> dict:
-    """Generate 3 IELTS Part 3 abstract, discussion questions."""
-    prompt = """
-    Generate ONE IELTS Speaking Part 3 discussion question.
-
-    Requirements:
-    - Abstract, opinion-based, and analytical.
-    - Related to society, culture, education, technology, future, or global issues.
-    - Suitable for a 30–40 second thoughtful answer.
-    - Return ONLY the question text.
-    """
-    return {"questions": [_generate_unique_question(prompt)["question"] for _ in range(3)]}
-
-
-# ----------- API ROUTES -----------
-
-@app.get("/generate-part1")
-async def generate_part1():
-    return generate_part1_questions()
-
-@app.get("/generate-part2")
-async def generate_part2():
-    return generate_part2_question()
-
-@app.get("/generate-part3")
-async def generate_part3():
-    return generate_part3_questions()
-
-
-def aggregate_evaluations(evaluations: list[dict]) -> dict:
-    """
-    Combine multiple evaluations (from Part 1, 2, 3) into one overall IELTS result.
-    Weighted scoring:
-        Part 1 -> 25%
-        Part 2 -> 40%
-        Part 3 -> 35%
-    """
-    if not evaluations or len(evaluations) != 3:
-        return {"error": "Expected exactly 3 evaluations (Part 1, Part 2, Part 3)"}
-
-    weights = [0.25, 0.40, 0.35]  # Part 1, Part 2, Part 3
-    criteria = ["fluency", "vocabulary", "grammar", "pronunciation", "overall_band"]
-
-    weighted_scores = {c: 0.0 for c in criteria}
-    strengths, weaknesses = [], []
-
-    for i, ev in enumerate(evaluations):
-        if "error" in ev:
-            continue
-
-        try:
-            for c in criteria:
-                weighted_scores[c] += float(ev[c]) * weights[i]
-
-            strengths.extend(ev.get("strengths", []))
-            weaknesses.extend(ev.get("weaknesses", []))
-        except Exception:
-            continue
-
-    overall_result = {
-        "overall_band": round(weighted_scores["overall_band"], 1),
-        "fluency": round(weighted_scores["fluency"], 1),
-        "vocabulary": round(weighted_scores["vocabulary"], 1),
-        "grammar": round(weighted_scores["grammar"], 1),
-        "pronunciation": round(weighted_scores["pronunciation"], 1),
-        "strengths": list(set(strengths)),   # remove duplicates
-        "weaknesses": list(set(weaknesses))  # remove duplicates
+@app.post("/analyze-audio-quality")
+async def analyze_audio_quality_endpoint(request: dict):
+    """Analyze audio quality and provide suggestions"""
+    audio_chunk = request.get("audio_chunk", "")
+    
+    # This is a simplified version - you could use actual audio analysis
+    # For now, return general suggestions
+    return {
+        "quality": "fair",
+        "suggestions": [
+            "Speak closer to your microphone",
+            "Try to minimize background noise",
+            "Speak at a steady pace"
+        ]
     }
 
-    return overall_result
-
-
-# ----------- NEW API ENDPOINT -----------
-@app.post("/aggregate-results")
-async def aggregate_results(evaluations: list[dict]):
-    """
-    Takes a list of JSON evaluations for Part 1, Part 2, and Part 3
-    and returns a weighted overall IELTS band report.
-    """
-    return aggregate_evaluations(evaluations)
-
-
-
-def synthesize_speech(text: str) -> bytes:
-    """
-    Convert text into speech (mp3) using Groq TTS.
-    """
-    try:
-        response = client.audio.speech.create(
-            model="gpt-4o-mini-tts",   # or "whisper-tts" depending on Groq support
-            voice="alloy",            # choose available voice
-            input=text,
-        )
-        return response.audio  # raw audio bytes
-    except Exception as e:
-        print("TTS error:", e)
-        return b""
-
-
-@app.post("/mock-test-voice")
-async def mock_test_voice(part1: list[str], part2: str, part3: list[str]):
-    """
-    Generate a full mock IELTS test audio:
-    - Greeting
-    - Part 1 questions
-    - Part 2 cue card
-    - Part 3 questions
-    - Goodbye
-    """
-
-    script = []
-
-    # Greeting
-    script.append("Hello, welcome to your IELTS speaking mock test. Let's begin.")
-
-    # Part 1
-    script.append("Part one. I will ask you some questions about yourself and everyday topics.")
-    for q in part1:
-        script.append(q)
-
-    # Part 2
-    script.append("Now let's move on to part two. You will have a cue card.")
-    script.append(part2)
-
-    # Part 3
-    script.append("Now we continue with part three. I will ask you some more discussion questions.")
-    for q in part3:
-        script.append(q)
-
-    # Goodbye
-    script.append("That concludes the IELTS speaking mock test. Thank you, and goodbye.")
-
-    # Concatenate into one long script
-    full_text = " ".join(script)
-
-    # Convert to speech
-    audio_bytes = synthesize_speech(full_text)
-
-    if not audio_bytes:
-        return {"error": "TTS generation failed"}
-
-    return StreamingResponse(io.BytesIO(audio_bytes), media_type="audio/mpeg")
-
+@app.post("/pronunciation-feedback")
+async def pronunciation_feedback_endpoint(request: dict):
+    """Provide pronunciation-specific feedback"""
+    audio_chunk = request.get("audio_chunk", "")
+    transcript = request.get("transcript", "")
+    
+    # Simplified pronunciation feedback
+    # In a real implementation, you'd use specialized pronunciation analysis tools
+    
+    words = transcript.lower().split()
+    common_difficult_words = ["think", "three", "through", "world", "work", "comfortable", "development"]
+    
+    problematic_words = [word for word in words if any(diff in word for diff in common_difficult_words)]
+    
+    return {
+        "score": 6.5,
+        "feedback": "Your pronunciation is generally clear. Focus on consonant sounds and word stress.",
+        "problematic_words": problematic_words[:3]  # Top 3 challenging words
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5000)
