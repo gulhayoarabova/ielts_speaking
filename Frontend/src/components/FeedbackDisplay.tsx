@@ -7,7 +7,11 @@ interface FeedbackDisplayProps {
   question: string;
   recordingData: { duration: string; audioBlob?: Blob } | null;
   onFeedbackGenerated: (feedback: string) => void;
+  isSessionComplete: boolean;            // ✅ added
+  allRecordings: { duration: string; audioUrl?: string }[]; // ✅ added
+  questionCount: number;                 // ✅ added
 }
+
 
 interface FeedbackResponse {
   transcript?: string;

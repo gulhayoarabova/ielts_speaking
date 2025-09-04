@@ -14,6 +14,7 @@ import Lesson from "./pages/Lesson";
 import RegisterPage from "./pages/Register";
 import NotFound from "./pages/NotFound";
 import Speaking from "./pages/Speaking";
+import VoiceChatComponent from "./components/VoiceChatComponent";
 
 const queryClient = new QueryClient();
 
@@ -39,7 +40,7 @@ const App = () => (
                     element={<Lesson />}
                   />
                   <Route path="/register" element={<RegisterPage />} />
-                  <Route path="/speaking" element={<Speaking />} />
+                  <Route path="/speaking" element={<VoiceChatComponent />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>

@@ -10,6 +10,7 @@ import { UserModule } from './user/user.module';
 import { TrainingModule } from './training/training.module';
 import { HistoryModule } from './history/history.module';
 import { SendToAiModule } from './question/send-to-ai.module';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 dotenv.config();
 
 async function bootstrap() {
@@ -34,6 +35,8 @@ async function bootstrap() {
     ],
   });
   SwaggerModule.setup('api', app, document);
+
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
   app.enableCors({
