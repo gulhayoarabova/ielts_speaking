@@ -13,7 +13,7 @@ export class VoiceChatGateway {
 
   private clientLastSent: Map<string, boolean> = new Map(); // track last flag per client
 
-  constructor(private readonly sendToAiService: SendToAiService) {}
+  constructor(private readonly sendToAiService: SendToAiService) { }
 
   @SubscribeMessage('audio_chunk')
   async handleAudioChunk(
@@ -43,24 +43,23 @@ export class VoiceChatGateway {
 
       console.log('Normalized AI response:', JSON.stringify(response));
 
-      // live transcription (prefer normalized.transcript or original.transcript)
+      // Live transcription (prefer normalized.transcript or original.transcript)
       const transcript = response.transcript ?? response.original?.transcript ?? '';
 
       await client.emit('live_transcription', { text: transcript, timestamp: new Date().toISOString() });
 
-      // evaluation / feedback
-      const evalObj = response.evaluation ?? {};
-      // ensure score is numeric if possible
-      const score = evalObj.score ?? evalObj.overall_band ?? evalObj.score_float ?? null;
+      // Evaluation / feedback
+      const evalObj = response.evaluation ?? { feedback: '', score: null, overall_band: null, strengths: [], suggestions: [] };
+      const score = evalObj.score ?? evalObj.overall_band ?? null;
 
       await client.emit('feedback', {
-        feedback: evalObj.feedback ?? '',
-        score: typeof score === 'string' ? parseFloat(score) || null : score,
-        strengths: evalObj.strengths ?? [],
-        suggestions: evalObj.suggestions ?? [],
+        feedback: (evalObj.feedback as string) ?? '',  // Add type assertion for safety
+        score: typeof score === 'string' ? parseFloat(score) || null : (score as number | null),  // Handle potential type mismatches
+        strengths: 'strengths' in evalObj ? (evalObj.strengths as string[] ?? []) : [],
+        suggestions: 'suggestions' in evalObj ? (evalObj.suggestions as string[] ?? []) : [],
       });
 
-      // examiner textual response (if any)
+      // Examiner textual response (if any)
       if (response.ai_response) {
         await client.emit('ai_message', {
           content: response.ai_response,
