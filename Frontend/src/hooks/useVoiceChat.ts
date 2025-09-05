@@ -12,7 +12,7 @@ export const useVoiceChat = () => {
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
 
-  const BACKEND = import.meta.env.REACT_APP_BACKEND_URL || "http://localhost:3000";
+  const BACKEND = "https://ielts-speaking-1.onrender.com";
   const NAMESPACE = import.meta.env.REACT_APP_WS_NAMESPACE || "/voice-chat";
 
   useEffect(() => {
